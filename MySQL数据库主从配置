@@ -1,0 +1,41 @@
+# master
+[mysqld]
+log-bin=log
+server-id=1
+binlog-do-db=itcp_msmode # 要同步的数据库
+binlog-ignore-db=mysql # 忽略的数据库
+binlog-ignore-db=test # 忽略的数据库
+sync_binlog=1
+innodb-flush-log-at-trx-commit=1
+
+# 主数据库创建从数据库的同步用户
+CREATE USER 'master'@'%' IDENTIFIED BY '123456';
+GRANT REPLICATION SLAVE ON *.* TO 'master'@'%';
+
+# 主数据库查看状态
+show master status;
+
+# slave
+[mysqld]
+server-id=2
+replicate-do-db=itcp_msmode # 要同步的数据库
+replicate-ignore-db=mysql # 忽略的数据库
+replicate-ignore-db=test # 忽略的数据库
+
+# 设置从数据库只读
+set global read_only=1;
+
+# 设置从数据库同步
+CHANGE MASTER TO
+master_host='192.168.1.67',
+master_user='master',
+master_password='123456',
+master_port=3306,
+master_log_file='log.000002',
+master_log_pos=672377;
+
+# 开始主从同步
+start slave;
+
+# 查看从数据库状态
+show slave status;

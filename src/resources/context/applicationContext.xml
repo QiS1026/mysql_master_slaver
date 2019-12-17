@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:context="http://www.springframework.org/schema/context"
+    xmlns:aop="http://www.springframework.org/schema/aop" xmlns:jdbc="http://www.springframework.org/schema/jdbc"
+    xmlns:tx="http://www.springframework.org/schema/tx"
+    xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context.xsd http://www.springframework.org/schema/jdbc http://www.springframework.org/schema/jdbc/spring-jdbc.xsd http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx.xsd http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop.xsd">
+    <context:property-placeholder location="classpath*:application.properties" />
+    <aop:config proxy-target-class="true" />
+    <context:annotation-config />
+    <!-- 主数据库配置 -->
+    <bean id="masterDataSource" class="org.apache.tomcat.jdbc.pool.DataSource" destroy-method="close">
+        <property name="driverClassName" value="${jdbc.driverClassName}" />
+        <property name="url" value="${jdbc.url}" />
+        <property name="username" value="${jdbc.username}" />
+        <property name="password" value="${jdbc.password}" />
+        <property name="maxIdle" value="100" />
+        <property name="minIdle" value="10" />
+        <property name="maxActive" value="100" />
+        <property name="maxWait" value="10000" />
+        <property name="initialSize" value="10" />
+        <property name="removeAbandoned" value="true" />
+        <property name="removeAbandonedTimeout" value="600" />
+        <property name="validationQuery" value="select 1" />
+        <property name="validationInterval" value="30000" />
+        <property name="defaultAutoCommit" value="true" />
+        <property name="testWhileIdle" value="true" />
+        <property name="timeBetweenEvictionRunsMillis" value="1200000" />
+        <property name="minEvictableIdleTimeMillis" value="1800000" />
+        <property name="numTestsPerEvictionRun" value="5" />
+        <property name="testOnBorrow" value="true" />
+        <property name="testOnReturn" value="true" />
+    </bean>
+    <!-- 从数据库数据源 -->
+    <bean id="slaveDataSource" class="org.apache.tomcat.jdbc.pool.DataSource" destroy-method="close">
+        <property name="driverClassName" value="${jdbc.driverClassName}" />
+        <property name="url" value="${jdbc.slave.url}" />
+        <property name="username" value="${jdbc.slave.username}" />
+        <property name="password" value="${jdbc.slave.password}" />
+        <property name="maxIdle" value="100" />
+        <property name="minIdle" value="10" />
+        <property name="maxActive" value="100" />
+        <property name="maxWait" value="10000" />
+        <property name="initialSize" value="10" />
+        <property name="removeAbandoned" value="true" />
+        <property name="removeAbandonedTimeout" value="600" />
+        <property name="validationQuery" value="select 1" />
+        <property name="validationInterval" value="30000" />
+        <property name="defaultAutoCommit" value="true" />
+        <property name="testWhileIdle" value="true" />
+        <property name="timeBetweenEvictionRunsMillis" value="1200000" />
+        <property name="minEvictableIdleTimeMillis" value="1800000" />
+        <property name="numTestsPerEvictionRun" value="5" />
+        <property name="testOnBorrow" value="true" />
+        <property name="testOnReturn" value="true" />
+    </bean>
+    <!-- 动态数据源 -->
+    <bean id="dataSource" class="com.base.config.DynamicDataSource">
+        <property name="targetDataSources">
+            <map key-type="java.lang.String">
+                <entry key="master" value-ref="masterDataSource"/>
+                <entry key="slave" value-ref="slaveDataSource"/>
+            </map>
+        </property>
+        <property name="defaultTargetDataSource" ref="masterDataSource"/>
+    </bean>
+    
+    <!-- 定义事务策略 -->
+    <tx:advice id="txAdvice" transaction-manager="transactionManager">
+       <tx:attributes>
+           <!-- 定义查询方法都是只读的 -->
+           <<tx:method name="slave_query*" read-only="true" />
+           <tx:method name="slave_find*" read-only="true" />
+           <tx:method name="slave_get*" read-only="true" />
+           <tx:method name="slave_list*" read-only="true" />
+           <tx:method name="slave_page*" read-only="true" />
+           
+           <!-- 主库执行操作，事务传播行为定义为默认行为 -->
+           <tx:method name="save*" propagation="REQUIRED" />
+           <tx:method name="insert*" propagation="REQUIRED" />
+           <tx:method name="update*" propagation="REQUIRED" />
+           <tx:method name="delete*" propagation="REQUIRED" />
+           
+           <!-- 其他方法使用默认事务策略 -->
+           <tx:method name="*"/>
+       </tx:attributes>
+    </tx:advice>
+
+    <!-- 定义AOP切面处理器 -->
+    <bean class="com.base.config.DataSourceAspect" id="dataSourceAspect">
+        <!-- 指定事务策略 -->
+        <property name="txAdvice" ref="txAdvice" />
+        <!-- 指定slave -->
+        <property name="slaveMethodStart" value="get,find,query,slave_" />
+    </bean>
+    <aop:config>
+        <!-- 定义切面，所有的service的所有方法 -->
+        <aop:pointcut id="txPointCut" expression="execution(* com.*.service.*.slave_*(..)) or execution(* com.bjupi.service.CommonService.*(..)) or execution(* com.common.service.ItcpService.*(..)) or execution(* com.common.service.ManagerService.*(..)) "/>
+        <!-- 引用事务策略到service切面 -->
+        <aop:advisor advice-ref="txAdvice" pointcut-ref="txPointCut"/>
+        <!-- 将切面应用到自定义的切面处理器上，-9999保证该切面优先级最高执行 -->
+        <aop:aspect ref="dataSourceAspect" order="-9999">
+            <aop:before method="before" pointcut-ref="txPointCut"/>
+        </aop:aspect>
+    </aop:config>
+</beans>
